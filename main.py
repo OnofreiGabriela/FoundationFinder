@@ -182,7 +182,7 @@ def start_webcam():
         if not ret or frame is None:
             return
 
-        detected_hex, top_matches = process_frame(frame, 'src/shades.json', face_cascade)
+        detected_hex, top_matches = process_frame(frame, 'shades.json', face_cascade)
         if detected_hex and top_matches:
             update_results_window(detected_hex, top_matches, listbox)
 
@@ -209,7 +209,7 @@ def open_image():
         messagebox.showerror("Error", "Could not load the image.")
         return
 
-    detected_hex, top_matches = process_frame(image, 'src/shades.json', face_cascade)
+    detected_hex, top_matches = process_frame(image, 'shades.json', face_cascade)
     if detected_hex and top_matches:
         # Create a window to show results
         results_window = Toplevel(root)
@@ -466,7 +466,7 @@ def apply_foundation_button():
         return
 
     # Process the frame to get detected skin color and matches
-    detected_hex, top_matches = process_frame(image, 'src/shades.json', face_cascade)
+    detected_hex, top_matches = process_frame(image, 'shades.json', face_cascade)
     if not detected_hex or not top_matches:
         messagebox.showinfo("Info", "No suitable matches found.")
         return
