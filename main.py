@@ -11,13 +11,15 @@ mp_face_mesh = mp.solutions.face_mesh
 mp_drawing = mp.solutions.drawing_utils
 
 def detect_skin(image):
-    """Enhanced skin detection combining YCrCb and HSV color spaces with dynamic thresholds."""
-    # Convert to YCrCb and HSV color spaces
+    """Enhanced skin detection combining YCrCb and HSV color spaces with improved hair exclusion."""
+
     img_YCrCb = cv2.cvtColor(image, cv2.COLOR_BGR2YCrCb)
     img_HSV = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
-    # Apply dynamic thresholds based on brightness
-    avg_brightness = np.mean(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY))
+    height, width, _ = image.shape
+    forehead_roi = image[int(height * 0.1):int(height * 0.25), width // 4: 3 * width // 4]
+    avg_brightness = np.mean(cv2.cvtColor(forehead_roi, cv2.COLOR_BGR2GRAY))
+
     if avg_brightness < 100:
         HSV_lower, HSV_upper = (0, 15, 0), (17, 170, 255)
         YCrCb_lower, YCrCb_upper = (0, 135, 85), (255, 180, 135)
@@ -25,21 +27,19 @@ def detect_skin(image):
         HSV_lower, HSV_upper = (0, 20, 0), (20, 150, 255)
         YCrCb_lower, YCrCb_upper = (80, 135, 85), (255, 180, 135)
 
-    # Create masks for both color spaces
     HSV_mask = cv2.inRange(img_HSV, HSV_lower, HSV_upper)
     YCrCb_mask = cv2.inRange(img_YCrCb, YCrCb_lower, YCrCb_upper)
 
-    # Refine masks using morphological operations
-    kernel = np.ones((3, 3), np.uint8)
-    HSV_mask = cv2.morphologyEx(HSV_mask, cv2.MORPH_OPEN, kernel)
-    YCrCb_mask = cv2.morphologyEx(YCrCb_mask, cv2.MORPH_OPEN, kernel)
-
-    # Merge the masks
     combined_mask = cv2.bitwise_and(HSV_mask, YCrCb_mask)
-    combined_mask = cv2.medianBlur(combined_mask, 3)
 
-    # Additional morphological closing
+    kernel = np.ones((3, 3), np.uint8)
+    combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_OPEN, kernel)
+    combined_mask = cv2.medianBlur(combined_mask, 3)
     combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, np.ones((4, 4), np.uint8))
+
+    edges = cv2.Canny(image, 50, 150)
+    edges = cv2.dilate(edges, np.ones((3, 3), np.uint8), iterations=1)
+    combined_mask[edges > 0] = 0
 
     return combined_mask
 
@@ -126,10 +126,10 @@ def on_shade_click(event, matches):
     widget = event.widget
     selection = widget.curselection()
     if not selection:
-        return  # No selection made; exit the function
-    index = selection[0]  # Get the index of the selected item
-    if index < len(matches):  # Ensure the index is within bounds of matches
-        shade = matches[index][0]  # Get the corresponding shade object
+        return  
+    index = selection[0] 
+    if index < len(matches):  
+        shade = matches[index][0]  
         if "url" in shade:
             webbrowser.open(shade["url"])
 
@@ -140,22 +140,20 @@ def update_results_window(hex_color, matches, listbox):
     listbox.insert("end", f"Detected Color: {hex_color}")
     listbox.insert("end", "")
 
-    # Populate the Listbox with matches
     for match in matches:
         shade = match[0]
         listbox.insert(
             "end", f"{shade['shade']} ({shade['hex']}) - {shade['brand']} - {shade['product']}"
         )
 
-    # Bind the Listbox to a click event
     def on_item_select(event):
         """Open the corresponding URL for the selected shade."""
         selection = listbox.curselection()
-        if not selection or selection[0] < 2:  # Ignore the first two rows (header and empty line)
+        if not selection or selection[0] < 2: 
             return
-        index = selection[0] - 2  # Adjust for the header and empty line
+        index = selection[0] - 2  
         if index < len(matches):
-            shade = matches[index][0]  # Get the correct shade from matches
+            shade = matches[index][0]  
             if "url" in shade:
                 webbrowser.open(shade["url"])
 
@@ -169,7 +167,7 @@ def start_webcam():
         messagebox.showerror("Error", "Webcam not accessible.")
         return
 
-    # Create a window for showing results
+
     results_window = Toplevel(root)
     results_window.title("Top Matches (Real-Time)")
     results_window.geometry("400x300")
@@ -211,7 +209,6 @@ def open_image():
 
     detected_hex, top_matches = process_frame(image, 'shades.json', face_cascade)
     if detected_hex and top_matches:
-        # Create a window to show results
         results_window = Toplevel(root)
         results_window.title("Top Matches")
         results_window.geometry("400x300")
@@ -225,44 +222,18 @@ def open_image():
     cv2.destroyAllWindows()
 
 
-# def smooth_skin(image, mask):
-#     """Smooth skin using bilateral filter and mask blending."""
-#     blurred = cv2.bilateralFilter(image, 15, 75, 75)
-#     smoothed = np.where(mask[:, :, None] > 0, blurred, image)
-#     return smoothed
-
-
-# def beautify_image(image_path):
-#     """Beautify the uploaded image and save the result."""
-#     image = cv2.imread(image_path)
-#     if image is None:
-#         print("Failed to load image.")
-#         return None
-#
-#     skin_mask = detect_skin(image)
-#     if skin_mask is None:
-#         print("No face detected.")
-#         return None
-#
-#     smoothed_image = smooth_skin(image, skin_mask)
-#     output_path = "beautified_image.png"
-#     cv2.imwrite(output_path, scale_image(smoothed_image,800,800))
-#     return output_path
 
 def scale_image(image, max_width = 800, max_height = 800):
     """Scale image to fit within the specified dimensions while maintaining aspect ratio."""
     height, width = image.shape[:2]
 
-    # Calculate scaling factor
     scale_width = max_width / width
     scale_height = max_height / height
     scale = min(scale_width, scale_height)
 
-    # Calculate new dimensions
     new_width = int(width * scale)
     new_height = int(height * scale)
 
-    # Resize the image
     scaled_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
     return scaled_image
 
@@ -273,13 +244,12 @@ def exclude_polygons_from_skin_mask(image):
         results = face_mesh.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
         if not results.multi_face_landmarks:
             print("No face detected.")
-            return None  # No face detected
-
+            return None  
         height, width, _ = image.shape
         skin_mask = np.ones((height, width), dtype=np.uint8) * 255
 
         for face_landmarks in results.multi_face_landmarks:
-            # Define polygons for exclusions using the updated indices
+            
             polygons = {
                 "lipsOuter": [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 375, 321, 405, 314, 17, 84, 181, 91,
                               146],
@@ -292,14 +262,14 @@ def exclude_polygons_from_skin_mask(image):
                 "leftEyebrow": [336, 296, 334, 293, 300, 276, 283, 282, 295, 285],
             }
 
-            # Convert normalized coordinates to pixel values
+            
             def get_polygon_coords(indices):
                 return np.array(
                     [(int(face_landmarks.landmark[i].x * width), int(face_landmarks.landmark[i].y * height)) for i in indices],
                     dtype=np.int32,
                 )
 
-            # Exclude each polygon by filling it black (0)
+        
             for key, indices in polygons.items():
                 polygon = get_polygon_coords(indices)
                 cv2.fillConvexPoly(skin_mask, polygon, 0)  # Fill the region with black (0)
@@ -307,87 +277,36 @@ def exclude_polygons_from_skin_mask(image):
         return skin_mask
 
 
-# def beautify_with_exclusions(image):
-#     """Beautify the image while excluding specific regions like eyes, eyebrows, and lips."""
-#     # Step 1: Generate the refined skin mask
-#     skin_mask = exclude_polygons_from_skin_mask(image)
-#     if skin_mask is None:
-#         print("No face detected.")
-#         return image
-#
-#
-#     # Step 4: Smooth skin using bilateral filter
-#     smoothed_image = cv2.bilateralFilter(skin_mask, d=15, sigmaColor=75, sigmaSpace=75)
-#
-#     # Step 5: Apply smoothing only to the skin regions
-#     alpha_mask = (skin_mask / 255.0)[:, :, None]  # Normalize the mask to [0, 1] and expand dimensions
-#     beautified_image = cv2.convertScaleAbs(
-#         (alpha_mask * smoothed_image) + ((1 - alpha_mask) * skin_mask)
-#     )
-#
-#     return beautified_image
 
 
-def exclude_outside_silhouette(image):
-    """Exclude regions outside the face silhouette from the skin mask."""
-    with mp_face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, refine_landmarks=True) as face_mesh:
-        results = face_mesh.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-        if not results.multi_face_landmarks:
-            return None  # No face detected
+# def exclude_outside_silhouette(image):
+#     """Exclude regions outside the face silhouette from the skin mask."""
+#     with mp_face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, refine_landmarks=True) as face_mesh:
+#         results = face_mesh.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+#         if not results.multi_face_landmarks:
+#             return None  # No face detected
 
-        height, width, _ = image.shape
-        mask = np.zeros((height, width), dtype=np.uint8)
+#         height, width, _ = image.shape
+#         mask = np.zeros((height, width), dtype=np.uint8)
 
-        for face_landmarks in results.multi_face_landmarks:
-            # Define the silhouette polygon
-            silhouette_indices = [
-                10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288,
-                397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136,
-                172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109
-            ]
-            silhouette_polygon = np.array([
-                (int(face_landmarks.landmark[i].x * width), int(face_landmarks.landmark[i].y * height))
-                for i in silhouette_indices
-            ], dtype=np.int32)
+#         for face_landmarks in results.multi_face_landmarks:
+#             # Define the silhouette polygon
+#             silhouette_indices = [
+#                 10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288,
+#                 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136,
+#                 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109
+#             ]
+#             silhouette_polygon = np.array([
+#                 (int(face_landmarks.landmark[i].x * width), int(face_landmarks.landmark[i].y * height))
+#                 for i in silhouette_indices
+#             ], dtype=np.int32)
 
-            # Fill the silhouette region
-            cv2.fillPoly(mask, [silhouette_polygon], 255)
+#             # Fill the silhouette region
+#             cv2.fillPoly(mask, [silhouette_polygon], 255)
 
-        return mask
+#         return mask
 
 
-# def beautify_with_exclusions_and_silhouette(image):
-#     """Beautify the image while excluding specific regions and outside the face silhouette."""
-#     # Generate the silhouette mask
-#     silhouette_mask = exclude_outside_silhouette(image)
-#     if silhouette_mask is None:
-#         print("No face detected.")
-#         return image
-#
-#     # Generate the refined skin mask (excluding eyes, lips, etc.)
-#     refined_skin_mask = exclude_polygons_from_skin_mask(image)
-#     if refined_skin_mask is None:
-#         print("No face detected.")
-#         return image
-#
-#     # Combine silhouette and refined skin mask
-#     final_mask = cv2.bitwise_and(silhouette_mask, refined_skin_mask)
-#
-#     # Debug: Visualize the combined mask
-#     cv2.imshow("Debug: Final Skin Mask with Silhouette Exclusion", final_mask)
-#     cv2.waitKey(0)
-#     cv2.destroyAllWindows()
-#
-#     # Smooth skin using bilateral filter
-#     smoothed_image = cv2.bilateralFilter(image, d=15, sigmaColor=75, sigmaSpace=75)
-#
-#     # Apply smoothing only to the skin regions within the silhouette
-#     alpha_mask = (final_mask / 255.0)[:, :, None]  # Normalize mask to [0, 1] and expand dimensions
-#     beautified_image = cv2.convertScaleAbs(
-#         (alpha_mask * smoothed_image) + ((1 - alpha_mask) * image)
-#     )
-#
-#     return beautified_image
 
 def select_foundation_from_matches(matches, image):
     """Allow the user to select a foundation shade and apply it to the image."""
@@ -423,29 +342,27 @@ def select_foundation_from_matches(matches, image):
     return apply_selected_foundation(image, selected_shade[0])
 
 def apply_selected_foundation(image, foundation_shade):
-    """Apply the selected foundation shade while blending with natural textures."""
-    # Convert the foundation hex color to BGR (OpenCV uses BGR format)
+    """Apply the selected foundation shade while blending with natural textures only on detected skin areas, while excluding eyes, eyebrows, and lips."""
+    
     foundation_rgb = np.array(hex_to_rgb(foundation_shade['hex']), dtype=np.uint8)
-    foundation_bgr = foundation_rgb[::-1]  # Convert RGB to BGR for OpenCV
+    foundation_bgr = foundation_rgb[::-1]  
 
-    # Generate masks
-    silhouette_mask = exclude_outside_silhouette(image)
-    refined_skin_mask = exclude_polygons_from_skin_mask(image)
-    if silhouette_mask is None or refined_skin_mask is None:
+    skin_mask = detect_skin(image)
+
+    exclusion_mask = exclude_polygons_from_skin_mask(image)
+
+    if skin_mask is None or exclusion_mask is None:
         print("No face detected.")
         return image
 
-    # Combine silhouette and skin mask
-    final_mask = cv2.bitwise_and(silhouette_mask, refined_skin_mask)
+    # Combine both masks: Keep only skin areas while excluding eyes, eyebrows, lips
+    final_mask = cv2.bitwise_and(skin_mask, exclusion_mask)
 
-    # Smooth the skin while preserving textures
     smoothed_image = cv2.bilateralFilter(image, d=15, sigmaColor=75, sigmaSpace=75)
 
-    # Create a foundation color layer
     foundation_layer = np.full_like(image, foundation_bgr, dtype=np.uint8)
 
-    # Blend the foundation with the skin tones
-    alpha_mask = (final_mask / 255.0)[:, :, None]  # Normalize mask to [0, 1]
+    alpha_mask = (final_mask / 255.0)[:, :, None]  # Normalize mask to [0, 1] and expand dimensions
     beautified_image = cv2.convertScaleAbs(
         alpha_mask * cv2.addWeighted(smoothed_image, 0.8, foundation_layer, 0.2, 0) +
         (1 - alpha_mask) * image
@@ -479,7 +396,6 @@ def apply_foundation_button():
     cv2.imshow("Foundation Applied Image", scale_image(result_image))
     cv2.waitKey(0)
     cv2.destroyAllWindows()
-
 
 
 
